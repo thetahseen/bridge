@@ -1,6 +1,6 @@
-import { makeWASocket, DisconnectReason } from "@whiskeysockets/baileys"
+import { makeWASocket, DisconnectReason, useMultiFileAuthState } from "@whiskeysockets/baileys"
 import TelegramBot from "node-telegram-bot-api"
-import Boom from "@hapi/boom"
+import { Boom } from "@hapi/boom"
 import pino from "pino"
 import dotenv from "dotenv"
 import { DatabaseManager } from "./database/manager.js"
@@ -9,7 +9,6 @@ import { ModuleManager } from "./modules/manager.js"
 import { QRCodeManager } from "./utils/qrcode.js"
 import { MessageHandler } from "./handlers/message.js"
 import fs from "fs"
-import path from "path"
 
 dotenv.config()
 
@@ -63,11 +62,15 @@ class WhatsAppTelegramBot {
     const sessionPath = process.env.WHATSAPP_SESSION_PATH || "./sessions"
 
     // Ensure session directory exists
-    if (!fs.existsSync(sessionPath)) {
-      fs.mkdirSync(sessionPath, { recursive: true })
+    const ensureSessionDirectoryExists = (sessionPath) => {
+      if (!fs.existsSync(sessionPath)) {
+        fs.mkdirSync(sessionPath, { recursive: true })
+      }
     }
 
-    const { state, saveCreds } = await this.useMultiFileAuthState(sessionPath)
+    ensureSessionDirectoryExists(sessionPath)
+
+    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
 
     this.sock = makeWASocket({
       auth: state,
@@ -115,28 +118,6 @@ class WhatsAppTelegramBot {
         }
       }
     })
-  }
-
-  async useMultiFileAuthState(sessionPath) {
-    const existingFiles = fs.readdirSync(sessionPath)
-    const creds = existingFiles.find((file) => file.endsWith(".json"))
-    if (creds) {
-      const credsData = JSON.parse(fs.readFileSync(path.join(sessionPath, creds), "utf-8"))
-      return {
-        state: credsData,
-        saveCreds: (newState) => {
-          fs.writeFileSync(path.join(sessionPath, creds), JSON.stringify(newState, null, 2))
-        },
-      }
-    } else {
-      return {
-        state: {},
-        saveCreds: (newState) => {
-          const credsFile = path.join(sessionPath, "creds.json")
-          fs.writeFileSync(credsFile, JSON.stringify(newState, null, 2))
-        },
-      }
-    }
   }
 
   async shutdown() {
