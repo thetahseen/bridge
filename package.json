@@ -1,0 +1,28 @@
+{
+  "name": "whatsapp-telegram-bridge-bot",
+  "version": "1.0.0",
+  "description": "A modular WhatsApp bot with Telegram bridge functionality",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "setup": "node scripts/setup.js",
+    "install-deps": "npm install"
+  },
+  "keywords": ["whatsapp", "telegram", "bot", "bridge", "baileys"],
+  "author": "WhatsApp Telegram Bridge Bot",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "node-telegram-bot-api": "^0.64.0",
+    "sqlite3": "^5.1.6",
+    "qrcode": "^1.5.3",
+    "pino": "^8.17.2",
+    "dotenv": "^16.3.1",
+    "sharp": "^0.33.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
