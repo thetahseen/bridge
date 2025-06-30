@@ -29,20 +29,25 @@ export class TelegramBridge {
 
     this.bot.onText(/\/start/, async (msg) => {
       const chatId = msg.chat.id
+      const connectionMethod = this.config.whatsappPairingNumber ? "Pairing Code" : "QR Code"
+
       await this.bot.sendMessage(
         chatId,
         `🤖 *${this.config.botName} v${this.config.botVersion}*\n\n` +
           "Commands:\n" +
           "/status - Check connection status\n" +
           "/setbridge - Set this group as bridge\n" +
-          "/qr - Get WhatsApp QR code\n" +
+          (this.config.whatsappPairingNumber ? "" : "/qr - Get WhatsApp QR code\n") +
           "/pair [phone] - Get pairing code for phone number\n" +
           "/unpair - Disconnect WhatsApp\n" +
           "/config - Show current configuration\n" +
           "/help - Show this help message\n\n" +
+          `*Current Connection Method:* ${connectionMethod}\n\n` +
           "*Connection Methods:*\n" +
-          "• QR Code: Use /qr command\n" +
-          "• Pairing Code: Use /pair [your_phone_number]",
+          (this.config.whatsappPairingNumber
+            ? `• Pairing Code: Configured for +${this.config.whatsappPairingNumber}\n` +
+              "• Manual Pairing: Use /pair [phone_number]"
+            : "• QR Code: Use /qr command\n" + "• Pairing Code: Use /pair [your_phone_number]"),
         { parse_mode: "Markdown" },
       )
     })
@@ -53,14 +58,17 @@ export class TelegramBridge {
       const uptime = process.uptime()
       const hours = Math.floor(uptime / 3600)
       const minutes = Math.floor((uptime % 3600) / 60)
+      const connectionMethod = this.config.whatsappPairingNumber ? "Pairing Code" : "QR Code"
 
       const statusMessage =
         `📊 *Bot Status*\n\n` +
         `*Connection:* ${status}\n` +
+        `*Method:* ${connectionMethod}\n` +
         `*Uptime:* ${hours}h ${minutes}m\n` +
         `*Version:* ${this.config.botVersion}\n` +
         `*Modules:* ${global.bot?.moduleManager?.modules?.size || 0} loaded\n` +
-        `*Bridge:* ${this.bridgeGroupId ? "✅ Active" : "❌ Not set"}`
+        `*Bridge:* ${this.bridgeGroupId ? "✅ Active" : "❌ Not set"}\n` +
+        (this.config.whatsappPairingNumber ? `*Phone:* +${this.config.whatsappPairingNumber}` : "")
 
       await this.bot.sendMessage(chatId, statusMessage, { parse_mode: "Markdown" })
     })
@@ -75,6 +83,7 @@ export class TelegramBridge {
       const configInfo =
         `⚙️ *Configuration*\n\n` +
         `*Bot Name:* ${this.config.botName}\n` +
+        `*Connection Method:* ${this.config.whatsappPairingNumber ? "Pairing Code" : "QR Code"}\n` +
         `*Debug Mode:* ${this.config.isDebugMode ? "✅" : "❌"}\n` +
         `*Auto Reconnect:* ${this.config.get("bot.autoReconnect") ? "✅" : "❌"}\n` +
         `*Modules Enabled:* ${this.config.get("modules.enabled") ? "✅" : "❌"}\n` +
@@ -95,17 +104,24 @@ export class TelegramBridge {
       }
     })
 
-    this.bot.onText(/\/qr/, async (msg) => {
-      const chatId = msg.chat.id
-      await this.bot.sendMessage(chatId, "🔄 Requesting new QR code...")
-    })
+    // Only add QR command if not using pairing code
+    if (!this.config.whatsappPairingNumber) {
+      this.bot.onText(/\/qr/, async (msg) => {
+        const chatId = msg.chat.id
+        await this.bot.sendMessage(chatId, "🔄 Requesting new QR code...")
+        // Force reconnection to generate new QR
+        if (global.bot?.sock) {
+          await global.bot.sock.logout()
+        }
+      })
+    }
 
     this.bot.onText(/\/pair (.+)/, async (msg, match) => {
       const chatId = msg.chat.id
       const phoneNumber = match[1].replace(/[^0-9]/g, "")
 
       if (!phoneNumber) {
-        await this.bot.sendMessage(chatId, "❌ Please provide a valid phone number.\nExample: /pair 1234567890")
+        await this.bot.sendMessage(chatId, "❌ Please provide a valid phone number.\nExample: /pair 923018706705")
         return
       }
 
@@ -118,7 +134,7 @@ export class TelegramBridge {
             return
           }
 
-          await new Promise((resolve) => setTimeout(resolve, 2000))
+          await new Promise((resolve) => setTimeout(resolve, 3000))
 
           const code = await global.bot.sock.requestPairingCode(phoneNumber)
           await this.sendPairingCode(phoneNumber, code)
@@ -215,7 +231,13 @@ export class TelegramBridge {
       `📱 *WhatsApp Pairing Code*\n\n` +
       `Phone: +${phoneNumber}\n` +
       `Code: \`${code}\`\n\n` +
-      `Enter this code in WhatsApp to connect your account.`
+      `*Steps to connect:*\n` +
+      `1. Open WhatsApp on your phone\n` +
+      `2. Go to Settings > Linked Devices\n` +
+      `3. Tap "Link a Device"\n` +
+      `4. Choose "Link with Phone Number"\n` +
+      `5. Enter the code above\n\n` +
+      `⏰ Code expires in a few minutes!`
 
     if (this.adminChatId) {
       await this.bot.sendMessage(this.adminChatId, message, {

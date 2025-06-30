@@ -30,11 +30,13 @@ class WhatsAppTelegramBot {
     this.state = null
     this.saveCreds = null
     this.reconnectAttempts = 0
+    this.usePairingCode = !!config.whatsappPairingNumber // Boolean flag
   }
 
   async initialize() {
     try {
       this.logger.info(`Initializing ${config.botName} v${config.botVersion}...`)
+      this.logger.info(`Connection method: ${this.usePairingCode ? "Pairing Code" : "QR Code"}`)
 
       // Validate configuration
       const configErrors = config.validate()
@@ -50,8 +52,10 @@ class WhatsAppTelegramBot {
       this.database = new DatabaseManager(config)
       await this.database.initialize()
 
-      // Initialize QR code manager
-      this.qrManager = new QRCodeManager(config, this.logger)
+      // Initialize QR code manager (only if not using pairing code)
+      if (!this.usePairingCode) {
+        this.qrManager = new QRCodeManager(config, this.logger)
+      }
 
       // Initialize Telegram bot
       if (config.telegramBotToken) {
@@ -77,8 +81,10 @@ class WhatsAppTelegramBot {
         this.logger,
       )
 
-      // Initialize pairing manager
-      this.pairingManager = new PairingManager(config, this.logger)
+      // Initialize pairing manager (only if using pairing code)
+      if (this.usePairingCode) {
+        this.pairingManager = new PairingManager(config, this.logger)
+      }
 
       // Start WhatsApp connection
       await this.connectWhatsApp()
@@ -97,6 +103,7 @@ class WhatsAppTelegramBot {
         fs.mkdirSync(config.whatsappSessionPath, { recursive: true })
       }
 
+      // Initialize state and saveCreds outside of conditional logic
       const { state, saveCreds } = await useMultiFileAuthState(config.whatsappSessionPath)
       this.state = state
       this.saveCreds = saveCreds
@@ -106,7 +113,7 @@ class WhatsAppTelegramBot {
       this.sock = makeWASocket({
         version,
         auth: this.state,
-        printQRInTerminal: config.get("whatsapp.printQRInTerminal") && !config.whatsappPairingNumber,
+        printQRInTerminal: !this.usePairingCode, // Only print QR if NOT using pairing code
         logger: this.logger,
         browser: config.get("whatsapp.browser"),
         connectTimeoutMs: config.get("whatsapp.connectTimeoutMs"),
@@ -119,32 +126,50 @@ class WhatsAppTelegramBot {
         generateHighQualityLinkPreview: config.get("whatsapp.generateHighQualityLinkPreview"),
       })
 
-      // Handle pairing code if phone number is provided
-      if (config.whatsappPairingNumber && !this.sock.authState.creds.registered) {
-        const phoneNumber = config.whatsappPairingNumber.replace(/[^0-9]/g, "")
-        this.logger.info(`Requesting pairing code for ${phoneNumber}...`)
-
-        setTimeout(async () => {
-          try {
-            const code = await this.sock.requestPairingCode(phoneNumber)
-            this.logger.info(`Pairing code: ${code}`)
-
-            if (this.telegramBridge) {
-              await this.telegramBridge.sendPairingCode(phoneNumber, code)
-            }
-          } catch (error) {
-            this.logger.error("Error requesting pairing code:", error)
-          }
-        }, 3000)
-      }
-
       this.sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr, isNewLogin } = update
 
         this.logger.info("Connection update:", { connection, isNewLogin })
 
-        if (qr && this.telegramBridge && !config.whatsappPairingNumber) {
-          await this.qrManager.sendQRToTelegram(qr, this.telegramBridge)
+        // Handle QR code (only if NOT using pairing code)
+        if (qr && !this.usePairingCode) {
+          this.logger.info("QR code received, sending to Telegram...")
+          if (this.telegramBridge && this.qrManager) {
+            await this.qrManager.sendQRToTelegram(qr, this.telegramBridge)
+          }
+        }
+
+        // Handle pairing code (only if using pairing code and not registered)
+        if (connection === "connecting" && this.usePairingCode && !this.sock.authState.creds.registered) {
+          this.logger.info("Connection established, requesting pairing code...")
+
+          // Wait a bit for connection to stabilize
+          setTimeout(async () => {
+            try {
+              const phoneNumber = config.whatsappPairingNumber.replace(/[^0-9]/g, "")
+              this.logger.info(`Requesting pairing code for ${phoneNumber}...`)
+
+              const code = await this.sock.requestPairingCode(phoneNumber)
+              this.logger.info(`Pairing code generated: ${code}`)
+
+              if (this.telegramBridge) {
+                await this.telegramBridge.sendPairingCode(phoneNumber, code)
+              }
+
+              // Also log to console for immediate visibility
+              console.log(`\n🔑 PAIRING CODE: ${code}`)
+              console.log(`📱 Enter this code in WhatsApp for number: +${phoneNumber}`)
+              console.log(`📍 Go to: WhatsApp > Settings > Linked Devices > Link a Device > Link with Phone Number\n`)
+            } catch (error) {
+              this.logger.error("Error requesting pairing code:", error)
+              if (this.telegramBridge) {
+                await this.telegramBridge.bot.sendMessage(
+                  config.telegramAdminChatId,
+                  `❌ Failed to generate pairing code: ${error.message}`,
+                )
+              }
+            }
+          }, 5000) // Wait 5 seconds for connection to stabilize
         }
 
         if (connection === "close") {
