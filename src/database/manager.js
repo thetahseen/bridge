@@ -4,10 +4,9 @@ import fs from "fs"
 import path from "path"
 
 export class DatabaseManager {
-  constructor(config) {
-    this.config = config
+  constructor() {
     this.db = null
-    this.dbPath = config.databasePath
+    this.dbPath = process.env.DATABASE_PATH || "./data/bot.db"
   }
 
   async initialize() {
@@ -25,11 +24,6 @@ export class DatabaseManager {
     this.db.all = promisify(this.db.all.bind(this.db))
 
     await this.createTables()
-
-    // Setup backup if enabled
-    if (this.config.get("database.backupEnabled")) {
-      this.setupBackup()
-    }
   }
 
   async createTables() {
@@ -70,58 +64,10 @@ export class DatabaseManager {
                 config TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )`,
-
-      `CREATE TABLE IF NOT EXISTS bot_settings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key TEXT UNIQUE NOT NULL,
-                value TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )`,
     ]
 
     for (const table of tables) {
       await this.db.run(table)
-    }
-  }
-
-  setupBackup() {
-    const backupInterval = this.config.get("database.backupInterval")
-    setInterval(() => {
-      this.createBackup()
-    }, backupInterval)
-  }
-
-  async createBackup() {
-    try {
-      const backupDir = path.join(path.dirname(this.dbPath), "backups")
-      if (!fs.existsSync(backupDir)) {
-        fs.mkdirSync(backupDir, { recursive: true })
-      }
-
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-      const backupPath = path.join(backupDir, `bot-backup-${timestamp}.db`)
-
-      fs.copyFileSync(this.dbPath, backupPath)
-
-      // Clean old backups
-      const maxBackups = this.config.get("database.maxBackups")
-      const backupFiles = fs
-        .readdirSync(backupDir)
-        .filter((file) => file.startsWith("bot-backup-"))
-        .sort()
-        .reverse()
-
-      if (backupFiles.length > maxBackups) {
-        const filesToDelete = backupFiles.slice(maxBackups)
-        filesToDelete.forEach((file) => {
-          fs.unlinkSync(path.join(backupDir, file))
-        })
-      }
-
-      console.log(`✅ Database backup created: ${backupPath}`)
-    } catch (error) {
-      console.error("Error creating database backup:", error)
     }
   }
 
@@ -167,18 +113,6 @@ export class DatabaseManager {
 
   async saveModule(name, config = "{}") {
     await this.db.run("INSERT OR REPLACE INTO modules (name, config) VALUES (?, ?)", [name, config])
-  }
-
-  async getSetting(key) {
-    const result = await this.db.get("SELECT value FROM bot_settings WHERE key = ?", [key])
-    return result ? result.value : null
-  }
-
-  async setSetting(key, value) {
-    await this.db.run("INSERT OR REPLACE INTO bot_settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)", [
-      key,
-      value,
-    ])
   }
 
   async close() {

@@ -1,7 +1,6 @@
 export default class HelpModule {
-  constructor(database, config, logger) {
+  constructor(database, logger) {
     this.database = database
-    this.config = config
     this.logger = logger
     this.name = "help"
   }
@@ -11,13 +10,12 @@ export default class HelpModule {
   }
 
   async process(messageInfo, contact) {
-    const helpText = `🤖 *${this.config.botName} Help*
+    const helpText = `🤖 *WhatsApp Bot Help*
 
 *Available Commands:*
 • \`!echo [message]\` - Echo your message
 • \`!help\` - Show this help message
 • \`!status\` - Check bot status
-• \`!pair [phone]\` - Get pairing code
 
 *Features:*
 • Messages are bridged to Telegram

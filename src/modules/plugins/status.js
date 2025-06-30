@@ -1,7 +1,6 @@
 export default class StatusModule {
-  constructor(database, config, logger) {
+  constructor(database, logger) {
     this.database = database
-    this.config = config
     this.logger = logger
     this.name = "status"
   }
@@ -19,8 +18,8 @@ export default class StatusModule {
 
 *Connection:* ${global.bot?.isConnected ? "✅ Connected" : "❌ Disconnected"}
 *Uptime:* ${hours}h ${minutes}m
-*Platform:* ${this.config.botName}
-*Version:* ${this.config.botVersion}
+*Platform:* WhatsApp Bridge Bot
+*Version:* 1.0.0
 
 *Database:* ✅ Active
 *Telegram Bridge:* ${global.bot?.telegramBridge ? "✅ Active" : "❌ Inactive"}
