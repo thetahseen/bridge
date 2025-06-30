@@ -49,8 +49,20 @@ npm start
 
 ### 5. Connect WhatsApp
 
+You have two options to connect WhatsApp:
+
+#### Option A: QR Code (Default)
 1. Scan the QR code that appears in terminal
 2. Or use `/qr` command in Telegram to get QR code
+
+#### Option B: Pairing Code (Alternative)
+1. Set your phone number in `.env` file:
+   \`\`\`env
+   PAIRING_NUMBER=1234567890
+   \`\`\`
+2. Or use Telegram command: `/pair 1234567890`
+3. Enter the 8-digit code in WhatsApp on your phone
+4. Go to WhatsApp > Settings > Linked Devices > Link a Device > Link with Phone Number
 
 ### 6. Set up Telegram Bridge
 
@@ -66,6 +78,8 @@ npm start
 - `/status` - Check WhatsApp connection status
 - `/setbridge` - Set current group as bridge (group only)
 - `/qr` - Request new QR code for WhatsApp
+- `/pair [phone]` - Get pairing code for phone number
+- `/unpair` - Disconnect current WhatsApp session
 - `/help` - Show help message
 
 ### WhatsApp Commands
@@ -74,6 +88,7 @@ Default modules provide these commands:
 - `!echo [message]` - Echo your message
 - `!help` - Show available commands
 - `!status` - Show bot status
+- `!pair [phone]` - Get pairing code for phone number
 
 ## Creating Custom Modules
 

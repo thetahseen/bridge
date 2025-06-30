@@ -35,7 +35,12 @@ export class TelegramBridge {
           "/status - Check connection status\n" +
           "/setbridge - Set this group as bridge\n" +
           "/qr - Get WhatsApp QR code\n" +
-          "/help - Show this help message",
+          "/pair [phone] - Get pairing code for phone number\n" +
+          "/unpair - Disconnect WhatsApp\n" +
+          "/help - Show this help message\n\n" +
+          "*Connection Methods:*\n" +
+          "• QR Code: Use /qr command\n" +
+          "• Pairing Code: Use /pair [your_phone_number]",
         { parse_mode: "Markdown" },
       )
     })
@@ -61,6 +66,44 @@ export class TelegramBridge {
       const chatId = msg.chat.id
       await this.bot.sendMessage(chatId, "🔄 Requesting new QR code...")
       // The QR will be sent when WhatsApp generates it
+    })
+
+    this.bot.onText(/\/pair (.+)/, async (msg, match) => {
+      const chatId = msg.chat.id
+      const phoneNumber = match[1].replace(/[^0-9]/g, "")
+
+      if (!phoneNumber) {
+        await this.bot.sendMessage(chatId, "❌ Please provide a valid phone number.\nExample: /pair 1234567890")
+        return
+      }
+
+      try {
+        if (global.bot?.sock && !global.bot.sock.authState.creds.registered) {
+          const code = await global.bot.sock.requestPairingCode(phoneNumber)
+          await this.sendPairingCode(phoneNumber, code)
+          await this.bot.sendMessage(chatId, "✅ Pairing code sent! Check the messages above.")
+        } else {
+          await this.bot.sendMessage(chatId, "❌ WhatsApp is already connected or not ready for pairing.")
+        }
+      } catch (error) {
+        this.logger.error("Error requesting pairing code:", error)
+        await this.bot.sendMessage(chatId, "❌ Failed to generate pairing code. Please try again.")
+      }
+    })
+
+    this.bot.onText(/\/unpair/, async (msg) => {
+      const chatId = msg.chat.id
+      try {
+        if (global.bot?.sock) {
+          await global.bot.sock.logout()
+          await this.bot.sendMessage(chatId, "✅ WhatsApp has been disconnected. You can now pair with a new number.")
+        } else {
+          await this.bot.sendMessage(chatId, "❌ No active WhatsApp connection found.")
+        }
+      } catch (error) {
+        this.logger.error("Error disconnecting WhatsApp:", error)
+        await this.bot.sendMessage(chatId, "❌ Failed to disconnect WhatsApp.")
+      }
     })
   }
 
@@ -124,6 +167,26 @@ export class TelegramBridge {
     if (this.bridgeGroupId) {
       await this.bot.sendPhoto(this.bridgeGroupId, qrCodeBuffer, {
         caption: "📱 Scan this QR code with WhatsApp to connect",
+      })
+    }
+  }
+
+  async sendPairingCode(phoneNumber, code) {
+    const message =
+      `📱 *WhatsApp Pairing Code*\n\n` +
+      `Phone: +${phoneNumber}\n` +
+      `Code: \`${code}\`\n\n` +
+      `Enter this code in WhatsApp to connect your account.`
+
+    if (this.adminChatId) {
+      await this.bot.sendMessage(this.adminChatId, message, {
+        parse_mode: "Markdown",
+      })
+    }
+
+    if (this.bridgeGroupId) {
+      await this.bot.sendMessage(this.bridgeGroupId, message, {
+        parse_mode: "Markdown",
       })
     }
   }
