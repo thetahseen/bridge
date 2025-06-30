@@ -1,0 +1,73 @@
+{
+  "telegram": {
+    "botToken": "your_telegram_bot_token_here",
+    "adminChatId": "your_telegram_chat_id_here",
+    "bridgeGroupId": ""
+  },
+  "whatsapp": {
+    "sessionPath": "./sessions",
+    "pairingNumber": "",
+    "printQRInTerminal": true,
+    "browser": ["WhatsApp Bridge Bot", "Chrome", "1.0.0"],
+    "connectTimeoutMs": 60000,
+    "defaultQueryTimeoutMs": 60000,
+    "keepAliveIntervalMs": 10000,
+    "retryRequestDelayMs": 1000,
+    "maxMsgRetryCount": 5,
+    "markOnlineOnConnect": true,
+    "syncFullHistory": false,
+    "generateHighQualityLinkPreview": false
+  },
+  "database": {
+    "path": "./data/bot.db",
+    "backupEnabled": true,
+    "backupInterval": 86400000,
+    "maxBackups": 7
+  },
+  "bot": {
+    "name": "WhatsApp Bridge Bot",
+    "version": "1.0.0",
+    "debug": false,
+    "logLevel": "info",
+    "autoReconnect": true,
+    "maxReconnectAttempts": 10,
+    "reconnectDelay": 5000
+  },
+  "modules": {
+    "enabled": true,
+    "pluginsPath": "./src/modules/plugins",
+    "autoLoad": true,
+    "defaultModules": ["help", "status", "echo", "pairing"]
+  },
+  "bridge": {
+    "enabled": true,
+    "createTopics": true,
+    "topicIconColor": 7322864,
+    "messageFormat": "📱 *{name}*\n{message}",
+    "forwardMedia": true,
+    "forwardDocuments": true
+  },
+  "security": {
+    "allowedUsers": [],
+    "blockedUsers": [],
+    "adminUsers": [],
+    "rateLimitEnabled": true,
+    "maxMessagesPerMinute": 30
+  },
+  "logging": {
+    "enabled": true,
+    "logToFile": true,
+    "logPath": "./logs",
+    "maxLogSize": "10MB",
+    "maxLogFiles": 5,
+    "logFormat": "json"
+  },
+  "advanced": {
+    "useProxy": false,
+    "proxyUrl": "",
+    "userAgent": "WhatsApp Bridge Bot/1.0.0",
+    "connectionRetries": 3,
+    "healthCheckInterval": 30000,
+    "gracefulShutdownTimeout": 10000
+  }
+}

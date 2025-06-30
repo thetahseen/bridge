@@ -2,19 +2,17 @@ import fs from "fs"
 import path from "path"
 
 export class ModuleManager {
-  constructor(database, logger) {
+  constructor(database, config, logger) {
     this.database = database
+    this.config = config
     this.logger = logger
     this.modules = new Map()
-    this.modulesPath = "./src/modules/plugins"
+    this.modulesPath = config.get("modules.pluginsPath")
   }
 
   async loadModules() {
-    // Ensure modules directory exists
     if (!fs.existsSync(this.modulesPath)) {
       fs.mkdirSync(this.modulesPath, { recursive: true })
-
-      // Create example module
       await this.createExampleModule()
     }
 
@@ -26,13 +24,17 @@ export class ModuleManager {
         const moduleClass = await import(`file://${modulePath}`)
         const moduleName = path.basename(file, ".js")
 
-        const moduleInstance = new moduleClass.default(this.database, this.logger)
-        this.modules.set(moduleName, moduleInstance)
+        // Check if module is in default modules list or if auto-load is enabled
+        const defaultModules = this.config.get("modules.defaultModules")
+        const autoLoad = this.config.get("modules.autoLoad")
 
-        // Save to database
-        await this.database.saveModule(moduleName)
+        if (autoLoad || defaultModules.includes(moduleName)) {
+          const moduleInstance = new moduleClass.default(this.database, this.config, this.logger)
+          this.modules.set(moduleName, moduleInstance)
 
-        this.logger.info(`Loaded module: ${moduleName}`)
+          await this.database.saveModule(moduleName)
+          this.logger.info(`Loaded module: ${moduleName}`)
+        }
       } catch (error) {
         this.logger.error(`Failed to load module ${file}:`, error)
       }
@@ -60,8 +62,9 @@ export class ModuleManager {
 
   async createExampleModule() {
     const exampleModule = `export default class EchoModule {
-    constructor(database, logger) {
+    constructor(database, config, logger) {
         this.database = database;
+        this.config = config;
         this.logger = logger;
         this.name = 'echo';
     }

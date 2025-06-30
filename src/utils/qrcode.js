@@ -1,13 +1,13 @@
 import QRCode from "qrcode"
 
 export class QRCodeManager {
-  constructor() {
-    this.logger = null
+  constructor(config, logger) {
+    this.config = config
+    this.logger = logger
   }
 
   async sendQRToTelegram(qrString, telegramBridge) {
     try {
-      // Generate QR code as buffer
       const qrBuffer = await QRCode.toBuffer(qrString, {
         type: "png",
         width: 256,
@@ -18,10 +18,9 @@ export class QRCodeManager {
         },
       })
 
-      // Send to Telegram
       await telegramBridge.sendQRCode(qrBuffer)
     } catch (error) {
-      console.error("Error generating/sending QR code:", error)
+      this.logger.error("Error generating/sending QR code:", error)
     }
   }
 }

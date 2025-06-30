@@ -1,13 +1,12 @@
 export class PairingManager {
-  constructor(logger) {
+  constructor(config, logger) {
+    this.config = config
     this.logger = logger
   }
 
   validatePhoneNumber(phoneNumber) {
-    // Remove all non-numeric characters
     const cleanNumber = phoneNumber.replace(/[^0-9]/g, "")
 
-    // Check if it's a valid length (typically 10-15 digits)
     if (cleanNumber.length < 10 || cleanNumber.length > 15) {
       return null
     }
@@ -19,9 +18,7 @@ export class PairingManager {
     const cleaned = this.validatePhoneNumber(phoneNumber)
     if (!cleaned) return null
 
-    // Add country code if not present
     if (cleaned.length === 10) {
-      // Assume US number, add +1
       return `1${cleaned}`
     }
 
@@ -53,7 +50,6 @@ export class PairingManager {
   }
 
   formatPairingCode(code) {
-    // Format pairing code for better readability (e.g., "12345678" -> "1234-5678")
     if (code.length === 8) {
       return `${code.slice(0, 4)}-${code.slice(4)}`
     }

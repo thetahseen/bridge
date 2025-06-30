@@ -1,6 +1,7 @@
 export default class PairingModule {
-  constructor(database, logger) {
+  constructor(database, config, logger) {
     this.database = database
+    this.config = config
     this.logger = logger
     this.name = "pairing"
   }

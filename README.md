@@ -6,10 +6,11 @@ A powerful, modular WhatsApp bot with Telegram bridge functionality built with N
 
 - 🔗 **Telegram Bridge**: Forward WhatsApp messages to Telegram groups with topic organization
 - 🧩 **Modular Architecture**: Easy to extend with custom modules
-- 💾 **Database Integration**: SQLite database for storing contacts and messages
-- 📱 **QR Code Support**: Automatic QR code generation and sharing via Telegram
+- 💾 **Database Integration**: SQLite database with automatic backups
+- 📱 **QR Code & Pairing Support**: Connect via QR code or phone number pairing
 - 🎯 **Topic Management**: Automatic topic creation for each WhatsApp contact
 - 🔄 **Bi-directional Communication**: Reply from Telegram topics to send WhatsApp messages
+- ⚙️ **Centralized Configuration**: JSON-based configuration system
 - ⚡ **Lightweight**: Minimal dependencies and efficient performance
 
 ## Quick Start
@@ -17,29 +18,35 @@ A powerful, modular WhatsApp bot with Telegram bridge functionality built with N
 ### 1. Installation
 
 \`\`\`bash
-# Clone or download the project
 npm install
 npm run setup
 \`\`\`
 
 ### 2. Configuration
 
-Edit the `.env` file with your settings:
+Edit the `config.json` file with your settings:
 
-\`\`\`env
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-TELEGRAM_ADMIN_CHAT_ID=your_telegram_chat_id_here
-DATABASE_PATH=./data/bot.db
-BOT_NAME=WhatsApp Bridge Bot
-DEBUG=false
-WHATSAPP_SESSION_PATH=./sessions
+\`\`\`json
+{
+  "telegram": {
+    "botToken": "your_telegram_bot_token_here",
+    "adminChatId": "your_telegram_chat_id_here"
+  },
+  "whatsapp": {
+    "pairingNumber": "1234567890"
+  },
+  "bot": {
+    "name": "My WhatsApp Bot",
+    "debug": false
+  }
+}
 \`\`\`
 
 ### 3. Getting Telegram Bot Token
 
 1. Message [@BotFather](https://t.me/botfather) on Telegram
 2. Send `/newbot` and follow instructions
-3. Copy the bot token to your `.env` file
+3. Copy the bot token to your `config.json` file
 
 ### 4. Start the Bot
 
@@ -56,13 +63,16 @@ You have two options to connect WhatsApp:
 2. Or use `/qr` command in Telegram to get QR code
 
 #### Option B: Pairing Code (Alternative)
-1. Set your phone number in `.env` file:
-   \`\`\`env
-   PAIRING_NUMBER=1234567890
+1. Set your phone number in `config.json`:
+   \`\`\`json
+   {
+     "whatsapp": {
+       "pairingNumber": "1234567890"
+     }
+   }
    \`\`\`
 2. Or use Telegram command: `/pair 1234567890`
 3. Enter the 8-digit code in WhatsApp on your phone
-4. Go to WhatsApp > Settings > Linked Devices > Link a Device > Link with Phone Number
 
 ### 6. Set up Telegram Bridge
 
@@ -70,12 +80,33 @@ You have two options to connect WhatsApp:
 2. Send `/setbridge` command in the group
 3. The group will now receive WhatsApp messages as topics
 
+## Configuration
+
+The bot uses a centralized `config.json` file for all settings:
+
+### Main Configuration Sections
+
+- **telegram**: Telegram bot settings
+- **whatsapp**: WhatsApp connection settings
+- **database**: Database and backup settings
+- **bot**: General bot behavior
+- **modules**: Module management
+- **bridge**: Telegram bridge settings
+- **security**: Security and access control
+- **logging**: Logging configuration
+- **advanced**: Advanced connection settings
+
+### Configuration Migration
+
+If you have an existing `.env` file, the bot will automatically migrate settings to `config.json` on first run.
+
 ## Usage
 
 ### Telegram Commands
 
 - `/start` - Show welcome message and commands
-- `/status` - Check WhatsApp connection status
+- `/status` - Check connection status and bot info
+- `/config` - Show current configuration (admin only)
 - `/setbridge` - Set current group as bridge (group only)
 - `/qr` - Request new QR code for WhatsApp
 - `/pair [phone]` - Get pairing code for phone number
@@ -96,138 +127,131 @@ Create a new file in `src/modules/plugins/` directory:
 
 \`\`\`javascript
 export default class MyCustomModule {
-    constructor(database, logger) {
+    constructor(database, config, logger) {
         this.database = database;
+        this.config = config;
         this.logger = logger;
         this.name = 'my-module';
     }
 
     shouldProcess(messageInfo, contact) {
-        // Return true if this module should process the message
         return messageInfo.text.startsWith('!mycommand');
     }
 
     async process(messageInfo, contact) {
-        // Process the message and return response
         return {
-            response: 'Hello from my custom module!',
-            // You can also modify the message before it goes to Telegram
+            response: \`Hello from \${this.config.botName}!\`,
             text: 'Modified message text'
         };
     }
 }
 \`\`\`
 
-### Module API
+### Module Configuration
 
-Your module class should implement:
+Control which modules load in `config.json`:
 
-- `constructor(database, logger)` - Initialize with database and logger
-- `shouldProcess(messageInfo, contact)` - Return boolean if module should handle message
-- `process(messageInfo, contact)` - Process message and return result object
-
-The `process` method can return:
-- `response` - Text to send back to WhatsApp user
-- `text` - Modified message text for Telegram bridge
-- Any other properties to modify the message
-
-### Database Access
-
-Use `this.database` in your modules:
-
-\`\`\`javascript
-// Get contact info
-const contact = await this.database.getContact(whatsappId);
-
-// Save custom data
-await this.database.db.run('INSERT INTO my_table VALUES (?)', [value]);
-
-// Query custom data
-const result = await this.database.db.get('SELECT * FROM my_table WHERE id = ?', [id]);
+\`\`\`json
+{
+  "modules": {
+    "enabled": true,
+    "autoLoad": true,
+    "defaultModules": ["help", "status", "echo", "pairing", "my-module"]
+  }
+}
 \`\`\`
 
-## Project Structure
+## Database Features
 
+- **Automatic Backups**: Configurable backup intervals
+- **Contact Management**: Automatic contact creation and tracking
+- **Message History**: Complete message logging
+- **Settings Storage**: Persistent bot settings
+
+## Security Features
+
+- **User Access Control**: Allow/block specific users
+- **Admin Commands**: Restricted admin-only commands
+- **Rate Limiting**: Prevent message spam
+- **Secure Configuration**: Centralized security settings
+
+## Advanced Features
+
+### Proxy Support
+\`\`\`json
+{
+  "advanced": {
+    "useProxy": true,
+    "proxyUrl": "http://proxy:8080"
+  }
+}
 \`\`\`
-├── src/
-│   ├── index.js              # Main bot file
-│   ├── database/
-│   │   └── manager.js        # Database management
-│   ├── bridges/
-│   │   └── telegram.js       # Telegram bridge functionality
-│   ├── handlers/
-│   │   └── message.js        # Message handling logic
-│   ├── modules/
-│   │   ├── manager.js        # Module management
-│   │   └── plugins/          # Custom modules directory
-│   └── utils/
-│       └── qrcode.js         # QR code utilities
-├── scripts/
-│   └── setup.js              # Setup script
-├── data/                     # Database files
-├── sessions/                 # WhatsApp session data
-└── logs/                     # Log files
+
+### Custom Message Formatting
+\`\`\`json
+{
+  "bridge": {
+    "messageFormat": "📱 *{name}*\\n{message}"
+  }
+}
 \`\`\`
 
-## Database Schema
-
-The bot uses SQLite with these tables:
-
-- `contacts` - WhatsApp contacts and their Telegram topic IDs
-- `messages` - Message history
-- `bridge_settings` - Telegram bridge configuration
-- `modules` - Loaded modules information
+### Logging Configuration
+\`\`\`json
+{
+  "logging": {
+    "enabled": true,
+    "logToFile": true,
+    "logLevel": "debug"
+  }
+}
+\`\`\`
 
 ## Troubleshooting
 
-### WhatsApp Connection Issues
+### Configuration Issues
+1. Check `config.json` syntax with a JSON validator
+2. Ensure all required fields are filled
+3. Use `/config` command to verify settings
 
-1. Delete `sessions/` folder and restart
-2. Make sure WhatsApp Web is not open elsewhere
-3. Check if your phone has internet connection
+### Connection Issues
+1. Clear sessions: `rm -rf sessions/`
+2. Check proxy settings if behind firewall
+3. Verify phone number format for pairing
 
-### Telegram Bridge Not Working
-
-1. Verify bot token in `.env`
-2. Make sure bot is admin in the group
-3. Check if group supports topics (supergroups only)
-
-### Module Not Loading
-
-1. Check file syntax and exports
-2. Look at logs for error messages
-3. Ensure file is in `src/modules/plugins/` directory
+### Module Issues
+1. Check module syntax and exports
+2. Verify module is in `defaultModules` list
+3. Check logs for detailed error messages
 
 ## Development
 
 ### Running in Development Mode
-
 \`\`\`bash
 npm run dev
 \`\`\`
 
 ### Debug Mode
+Set `"debug": true` in `config.json` for detailed logging.
 
-Set `DEBUG=true` in `.env` for detailed logging.
+### Configuration Management
+\`\`\`javascript
+import config from './config.js'
 
-### Contributing
+// Get values
+const botName = config.botName
+const isDebug = config.isDebugMode
 
-1. Fork the repository
-2. Create your feature branch
-3. Add your module to `src/modules/plugins/`
-4. Test thoroughly
-5. Submit a pull request
+// Set values
+config.set('bot.debug', true)
+
+// Validate configuration
+const errors = config.validate()
+\`\`\`
 
 ## License
 
 MIT License - feel free to use and modify as needed.
-
-## Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review logs in the console
-3. Create an issue with detailed information
 
 ---
 

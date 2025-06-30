@@ -1,8 +1,9 @@
 export class MessageHandler {
-  constructor(database, telegramBridge, moduleManager, logger) {
+  constructor(database, telegramBridge, moduleManager, config, logger) {
     this.database = database
     this.telegramBridge = telegramBridge
     this.moduleManager = moduleManager
+    this.config = config
     this.logger = logger
   }
 
@@ -11,7 +12,6 @@ export class MessageHandler {
       const messageInfo = this.extractMessageInfo(message)
       if (!messageInfo) return
 
-      // Get or create contact
       let contact = await this.database.getContact(messageInfo.from)
       if (!contact) {
         const contactId = await this.database.createContact(
@@ -22,7 +22,6 @@ export class MessageHandler {
         contact = await this.database.getContact(messageInfo.from)
       }
 
-      // Save message to database
       await this.database.saveMessage(
         contact.id,
         message.key.id,
@@ -32,21 +31,20 @@ export class MessageHandler {
         "incoming",
       )
 
-      // Process through modules
-      const processedMessage = await this.moduleManager.processMessage(messageInfo, contact)
+      if (this.moduleManager) {
+        const processedMessage = await this.moduleManager.processMessage(messageInfo, contact)
 
-      // Send to Telegram bridge
-      if (this.telegramBridge) {
-        await this.telegramBridge.sendWhatsAppMessageToTelegram(
-          contact,
-          processedMessage.text || messageInfo.text,
-          messageInfo.type,
-        )
-      }
+        if (this.telegramBridge) {
+          await this.telegramBridge.sendWhatsAppMessageToTelegram(
+            contact,
+            processedMessage.text || messageInfo.text,
+            messageInfo.type,
+          )
+        }
 
-      // Handle module responses
-      if (processedMessage.response) {
-        await sock.sendMessage(messageInfo.from, { text: processedMessage.response })
+        if (processedMessage.response) {
+          await sock.sendMessage(messageInfo.from, { text: processedMessage.response })
+        }
       }
     } catch (error) {
       this.logger.error("Error handling WhatsApp message:", error)

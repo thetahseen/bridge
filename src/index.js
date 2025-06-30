@@ -5,9 +5,8 @@ import {
   fetchLatestBaileysVersion,
 } from "@whiskeysockets/baileys"
 import TelegramBot from "node-telegram-bot-api"
-import { Boom } from "@hapi/boom"
 import pino from "pino"
-import dotenv from "dotenv"
+import config from "../config.js"
 import { DatabaseManager } from "./database/manager.js"
 import { TelegramBridge } from "./bridges/telegram.js"
 import { ModuleManager } from "./modules/manager.js"
@@ -16,11 +15,9 @@ import { MessageHandler } from "./handlers/message.js"
 import fs from "fs"
 import { PairingManager } from "./utils/pairing.js"
 
-dotenv.config()
-
 class WhatsAppTelegramBot {
   constructor() {
-    this.logger = pino({ level: process.env.DEBUG === "true" ? "debug" : "info" })
+    this.logger = pino({ level: config.logLevel })
     this.sock = null
     this.telegramBot = null
     this.database = null
@@ -32,35 +29,56 @@ class WhatsAppTelegramBot {
     this.isConnected = false
     this.state = null
     this.saveCreds = null
+    this.reconnectAttempts = 0
   }
 
   async initialize() {
     try {
-      this.logger.info("Initializing WhatsApp Telegram Bridge Bot...")
+      this.logger.info(`Initializing ${config.botName} v${config.botVersion}...`)
+
+      // Validate configuration
+      const configErrors = config.validate()
+      if (configErrors.length > 0) {
+        this.logger.error("Configuration errors:", configErrors)
+        console.log("\n❌ Configuration errors found:")
+        configErrors.forEach((error) => console.log(`  • ${error}`))
+        console.log("\nPlease fix config.json and restart the bot.\n")
+        process.exit(1)
+      }
 
       // Initialize database
-      this.database = new DatabaseManager()
+      this.database = new DatabaseManager(config)
       await this.database.initialize()
 
       // Initialize QR code manager
-      this.qrManager = new QRCodeManager()
+      this.qrManager = new QRCodeManager(config, this.logger)
 
       // Initialize Telegram bot
-      if (process.env.TELEGRAM_BOT_TOKEN) {
-        this.telegramBot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true })
-        this.telegramBridge = new TelegramBridge(this.telegramBot, this.database, this.logger)
+      if (config.telegramBotToken) {
+        this.telegramBot = new TelegramBot(config.telegramBotToken, { polling: true })
+        this.telegramBridge = new TelegramBridge(this.telegramBot, this.database, config, this.logger)
         await this.telegramBridge.initialize()
+      } else {
+        this.logger.warn("Telegram bot token not provided, bridge functionality disabled")
       }
 
       // Initialize module manager
-      this.moduleManager = new ModuleManager(this.database, this.logger)
-      await this.moduleManager.loadModules()
+      if (config.get("modules.enabled")) {
+        this.moduleManager = new ModuleManager(this.database, config, this.logger)
+        await this.moduleManager.loadModules()
+      }
 
       // Initialize message handler
-      this.messageHandler = new MessageHandler(this.database, this.telegramBridge, this.moduleManager, this.logger)
+      this.messageHandler = new MessageHandler(
+        this.database,
+        this.telegramBridge,
+        this.moduleManager,
+        config,
+        this.logger,
+      )
 
       // Initialize pairing manager
-      this.pairingManager = new PairingManager(this.logger)
+      this.pairingManager = new PairingManager(config, this.logger)
 
       // Start WhatsApp connection
       await this.connectWhatsApp()
@@ -71,88 +89,137 @@ class WhatsAppTelegramBot {
   }
 
   async connectWhatsApp() {
-    const sessionPath = process.env.WHATSAPP_SESSION_PATH || "./sessions"
+    try {
+      const { version, isLatest } = await fetchLatestBaileysVersion()
 
-    const { state, saveCreds } = await useMultiFileAuthState(sessionPath)
-    const { version, isLatest } = await fetchLatestBaileysVersion()
+      // Ensure session directory exists
+      if (!fs.existsSync(config.whatsappSessionPath)) {
+        fs.mkdirSync(config.whatsappSessionPath, { recursive: true })
+      }
 
-    // Ensure session directory exists
-    const ensureSessionDirectoryExists = (sessionPath) => {
-      if (!fs.existsSync(sessionPath)) {
-        fs.mkdirSync(sessionPath, { recursive: true })
+      const { state, saveCreds } = await useMultiFileAuthState(config.whatsappSessionPath)
+      this.state = state
+      this.saveCreds = saveCreds
+
+      this.logger.info(`Using Baileys version: ${version.join(".")}, isLatest: ${isLatest}`)
+
+      this.sock = makeWASocket({
+        version,
+        auth: this.state,
+        printQRInTerminal: config.get("whatsapp.printQRInTerminal") && !config.whatsappPairingNumber,
+        logger: this.logger,
+        browser: config.get("whatsapp.browser"),
+        connectTimeoutMs: config.get("whatsapp.connectTimeoutMs"),
+        defaultQueryTimeoutMs: config.get("whatsapp.defaultQueryTimeoutMs"),
+        keepAliveIntervalMs: config.get("whatsapp.keepAliveIntervalMs"),
+        retryRequestDelayMs: config.get("whatsapp.retryRequestDelayMs"),
+        maxMsgRetryCount: config.get("whatsapp.maxMsgRetryCount"),
+        markOnlineOnConnect: config.get("whatsapp.markOnlineOnConnect"),
+        syncFullHistory: config.get("whatsapp.syncFullHistory"),
+        generateHighQualityLinkPreview: config.get("whatsapp.generateHighQualityLinkPreview"),
+      })
+
+      // Handle pairing code if phone number is provided
+      if (config.whatsappPairingNumber && !this.sock.authState.creds.registered) {
+        const phoneNumber = config.whatsappPairingNumber.replace(/[^0-9]/g, "")
+        this.logger.info(`Requesting pairing code for ${phoneNumber}...`)
+
+        setTimeout(async () => {
+          try {
+            const code = await this.sock.requestPairingCode(phoneNumber)
+            this.logger.info(`Pairing code: ${code}`)
+
+            if (this.telegramBridge) {
+              await this.telegramBridge.sendPairingCode(phoneNumber, code)
+            }
+          } catch (error) {
+            this.logger.error("Error requesting pairing code:", error)
+          }
+        }, 3000)
+      }
+
+      this.sock.ev.on("connection.update", async (update) => {
+        const { connection, lastDisconnect, qr, isNewLogin } = update
+
+        this.logger.info("Connection update:", { connection, isNewLogin })
+
+        if (qr && this.telegramBridge && !config.whatsappPairingNumber) {
+          await this.qrManager.sendQRToTelegram(qr, this.telegramBridge)
+        }
+
+        if (connection === "close") {
+          const shouldReconnect = this.shouldReconnect(lastDisconnect)
+
+          this.logger.info("Connection closed", {
+            error: lastDisconnect?.error?.message,
+            statusCode: lastDisconnect?.error?.output?.statusCode,
+            shouldReconnect,
+            attempts: this.reconnectAttempts,
+          })
+
+          this.isConnected = false
+          if (this.telegramBridge) {
+            await this.telegramBridge.notifyConnectionStatus(false)
+          }
+
+          if (shouldReconnect && config.get("bot.autoReconnect")) {
+            this.reconnectAttempts++
+            if (this.reconnectAttempts <= config.get("bot.maxReconnectAttempts")) {
+              this.logger.info(
+                `Reconnecting in ${config.get("bot.reconnectDelay")}ms... (attempt ${this.reconnectAttempts})`,
+              )
+              setTimeout(() => this.connectWhatsApp(), config.get("bot.reconnectDelay"))
+            } else {
+              this.logger.error("Max reconnection attempts reached. Stopping bot.")
+              process.exit(1)
+            }
+          }
+        } else if (connection === "connecting") {
+          this.logger.info("Connecting to WhatsApp...")
+        } else if (connection === "open") {
+          this.logger.info("WhatsApp connection opened successfully")
+          this.isConnected = true
+          this.reconnectAttempts = 0 // Reset counter on successful connection
+          if (this.telegramBridge) {
+            await this.telegramBridge.notifyConnectionStatus(true)
+          }
+        }
+      })
+
+      this.sock.ev.on("creds.update", this.saveCreds)
+
+      this.sock.ev.on("messages.upsert", async (m) => {
+        if (m.type === "notify") {
+          for (const msg of m.messages) {
+            await this.messageHandler.handleWhatsAppMessage(msg, this.sock)
+          }
+        }
+      })
+    } catch (error) {
+      this.logger.error("Error in connectWhatsApp:", error)
+      if (config.get("bot.autoReconnect")) {
+        setTimeout(() => this.connectWhatsApp(), 10000)
       }
     }
+  }
 
-    ensureSessionDirectoryExists(sessionPath)
+  shouldReconnect(lastDisconnect) {
+    if (!lastDisconnect?.error) return true
 
-    this.state = state
-    this.saveCreds = saveCreds
+    const statusCode = lastDisconnect.error.output?.statusCode
 
-    this.sock = makeWASocket({
-      version,
-      auth: state,
-      printQRInTerminal: !process.env.PAIRING_NUMBER, // Only print QR if no pairing number
-      logger: this.logger,
-      browser: ["WhatsApp Bridge Bot", "Chrome", "1.0.0"],
-    })
+    const noReconnectCodes = [
+      DisconnectReason.loggedOut,
+      DisconnectReason.badSession,
+      DisconnectReason.multideviceMismatch,
+    ]
 
-    // Handle pairing code if phone number is provided
-    if (process.env.PAIRING_NUMBER && !this.sock.authState.creds.registered) {
-      const phoneNumber = process.env.PAIRING_NUMBER.replace(/[^0-9]/g, "")
-      this.logger.info(`Requesting pairing code for ${phoneNumber}...`)
-
-      try {
-        const code = await this.sock.requestPairingCode(phoneNumber)
-        this.logger.info(`Pairing code: ${code}`)
-
-        // Send pairing code to Telegram
-        if (this.telegramBridge) {
-          await this.telegramBridge.sendPairingCode(phoneNumber, code)
-        }
-      } catch (error) {
-        this.logger.error("Error requesting pairing code:", error)
-      }
+    if (noReconnectCodes.includes(statusCode)) {
+      this.logger.info(`Not reconnecting due to: ${statusCode}`)
+      return false
     }
 
-    this.sock.ev.on("connection.update", async (update) => {
-      const { connection, lastDisconnect, qr } = update
-
-      if (qr && this.telegramBridge && !process.env.PAIRING_NUMBER) {
-        // Send QR code to Telegram only if not using pairing code
-        await this.qrManager.sendQRToTelegram(qr, this.telegramBridge)
-      }
-
-      if (connection === "close") {
-        const shouldReconnect =
-          Boom.isBoom(lastDisconnect?.error) && lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-        this.logger.info("Connection closed due to", lastDisconnect?.error, ", reconnecting:", shouldReconnect)
-
-        this.isConnected = false
-        if (this.telegramBridge) {
-          await this.telegramBridge.notifyConnectionStatus(false)
-        }
-
-        if (shouldReconnect) {
-          setTimeout(() => this.connectWhatsApp(), 5000)
-        }
-      } else if (connection === "open") {
-        this.logger.info("WhatsApp connection opened")
-        this.isConnected = true
-        if (this.telegramBridge) {
-          await this.telegramBridge.notifyConnectionStatus(true)
-        }
-      }
-    })
-
-    this.sock.ev.on("creds.update", saveCreds)
-
-    this.sock.ev.on("messages.upsert", async (m) => {
-      if (m.type === "notify") {
-        for (const msg of m.messages) {
-          await this.messageHandler.handleWhatsAppMessage(msg, this.sock)
-        }
-      }
-    })
+    return true
   }
 
   async shutdown() {
@@ -170,7 +237,9 @@ class WhatsAppTelegramBot {
       await this.database.close()
     }
 
-    process.exit(0)
+    setTimeout(() => {
+      process.exit(0)
+    }, config.get("advanced.gracefulShutdownTimeout"))
   }
 }
 
