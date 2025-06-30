@@ -15,7 +15,7 @@ class Config {
       // WhatsApp Configuration
       whatsapp: {
         sessionPath: "./sessions",
-        pairingNumber: "923018706705", // Your phone number for pairing code
+        pairingNumber: "", // Set to empty string to disable pairing code
         printQRInTerminal: true,
         browser: ["WhatsApp Bridge Bot", "Chrome", "1.0.0"],
         connectTimeoutMs: 60000,
